@@ -2,12 +2,12 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
 
     <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
 
     <application
         android:allowBackup="false"
         android:label="MIRA PRO"
-        android:theme="@android:style/Theme.Material.NoActionBar"
-        android:usesCleartextTraffic="false">
+        android:theme="@android:style/Theme.Material.NoActionBar">
 
         <activity
             android:name=".MainActivity"
@@ -20,6 +20,10 @@
             </intent-filter>
 
         </activity>
+
+        <service
+            android:name=".MiraService"
+            android:exported="false" />
 
     </application>
 
