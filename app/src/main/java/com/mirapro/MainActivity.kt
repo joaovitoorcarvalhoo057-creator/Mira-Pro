@@ -11,7 +11,6 @@ import android.content.Intent
 import android.net.Uri
 import android.provider.Settings
 import android.view.Gravity
-import android.view.View
 import android.widget.*
 
 class MainActivity : Activity() {
@@ -21,14 +20,23 @@ class MainActivity : Activity() {
     private val branco = Color.WHITE
 
     private var miraSelecionada = 1
+    private var deslocamentoX = 0
+    private var deslocamentoY = 0
+    private var tamanhoMira = 140
 
     private lateinit var selecao: TextView
     private lateinit var status: TextView
     private lateinit var preview: ImageView
+    private lateinit var textoTamanho: TextView
+    private lateinit var textoPosicao: TextView
 
     private val imagens = mutableMapOf<Int, Bitmap?>()
     private val cards = mutableListOf<LinearLayout>()
     private val textosCards = mutableListOf<TextView>()
+
+    private val preferencias by lazy {
+        getSharedPreferences("MIRA_PRO", MODE_PRIVATE)
+    }
 
     private val modelos = listOf(
         "Ornamental 01", "Ornamental 02", "Ornamental 03",
@@ -47,27 +55,22 @@ class MainActivity : Activity() {
         window.statusBarColor = fundo
         window.navigationBarColor = fundo
 
-        miraSelecionada = getSharedPreferences(
-            "MIRA_PRO",
-            MODE_PRIVATE
-        ).getInt("mira_selecionada", 1)
+        miraSelecionada = preferencias.getInt("mira_selecionada", 1)
+            .coerceIn(1, 24)
 
-        if (miraSelecionada !in 1..24) {
-            miraSelecionada = 1
-        }
+        deslocamentoX = preferencias.getInt("offset_x", 0)
+        deslocamentoY = preferencias.getInt("offset_y", 0)
+        tamanhoMira = preferencias.getInt("tamanho_mira", 140)
+            .coerceIn(40, 250)
 
         criarTela()
     }
 
-    private fun dp(valor: Int): Int {
-        return (valor * resources.displayMetrics.density).toInt()
-    }
+    private fun dp(valor: Int): Int =
+        (valor * resources.displayMetrics.density).toInt()
 
     private fun carregarImagem(numero: Int): Bitmap? {
-
-        if (imagens.containsKey(numero)) {
-            return imagens[numero]
-        }
+        if (imagens.containsKey(numero)) return imagens[numero]
 
         val nome = "miras/mira_%02d.png".format(numero)
 
@@ -102,7 +105,6 @@ class MainActivity : Activity() {
             typeface = Typeface.DEFAULT_BOLD
             gravity = Gravity.CENTER
         }
-
         layout.addView(titulo)
 
         val subtitulo = TextView(this).apply {
@@ -112,7 +114,6 @@ class MainActivity : Activity() {
             gravity = Gravity.CENTER
             setPadding(0, dp(5), 0, dp(25))
         }
-
         layout.addView(subtitulo)
 
         val painel = LinearLayout(this).apply {
@@ -123,13 +124,10 @@ class MainActivity : Activity() {
         }
 
         preview = ImageView(this).apply {
-            layoutParams = LinearLayout.LayoutParams(
-                dp(150), dp(150)
-            )
+            layoutParams = LinearLayout.LayoutParams(dp(150), dp(150))
             scaleType = ImageView.ScaleType.FIT_CENTER
             setImageBitmap(carregarImagem(miraSelecionada))
         }
-
         painel.addView(preview)
 
         selecao = TextView(this).apply {
@@ -139,7 +137,6 @@ class MainActivity : Activity() {
             gravity = Gravity.CENTER
             setPadding(0, dp(10), 0, 0)
         }
-
         painel.addView(selecao)
         layout.addView(painel)
 
@@ -151,7 +148,6 @@ class MainActivity : Activity() {
             setTextColor(Color.LTGRAY)
             setPadding(0, dp(5), 0, dp(12))
         }
-
         layout.addView(status)
 
         val grade = GridLayout(this).apply {
@@ -159,7 +155,6 @@ class MainActivity : Activity() {
         }
 
         modelos.forEachIndexed { index, nome ->
-
             val numero = index + 1
 
             val card = LinearLayout(this).apply {
@@ -170,29 +165,28 @@ class MainActivity : Activity() {
             }
 
             val imagem = ImageView(this).apply {
-                layoutParams = LinearLayout.LayoutParams(
-                    dp(65), dp(65)
-                )
+                layoutParams = LinearLayout.LayoutParams(dp(65), dp(65))
                 scaleType = ImageView.ScaleType.FIT_CENTER
                 setImageBitmap(carregarImagem(numero))
             }
-
             card.addView(imagem)
 
             val texto = TextView(this).apply {
                 text = "%02d\n%s".format(numero, nome)
                 textSize = 10f
                 gravity = Gravity.CENTER
-                setTextColor(
-                    if (numero == miraSelecionada) verde else branco
-                )
+                setTextColor(if (numero == miraSelecionada) verde else branco)
                 setPadding(0, dp(5), 0, 0)
             }
-
             card.addView(texto)
 
             card.setOnClickListener {
-                selecionarMira(numero)
+                miraSelecionada = numero
+                preferencias.edit()
+                    .putInt("mira_selecionada", numero)
+                    .apply()
+                atualizarSelecao()
+                status.text = "Mira $numero selecionada"
             }
 
             val params = GridLayout.LayoutParams().apply {
@@ -204,26 +198,104 @@ class MainActivity : Activity() {
             }
 
             grade.addView(card, params)
-
             cards.add(card)
             textosCards.add(texto)
         }
 
         layout.addView(grade)
 
+        adicionarTitulo(layout, "AJUSTAR MIRA")
+
+        val painelAjuste = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            gravity = Gravity.CENTER
+            background = fundoCard()
+            setPadding(dp(15), dp(15), dp(15), dp(15))
+        }
+
+        textoPosicao = TextView(this).apply {
+            setTextColor(branco)
+            textSize = 13f
+            gravity = Gravity.CENTER
+        }
+        painelAjuste.addView(textoPosicao)
+
+        val cima = botaoDirecao("↑") {
+            alterarPosicao(0, -10)
+        }
+        painelAjuste.addView(cima, centralParams())
+
+        val linha = LinearLayout(this).apply {
+            gravity = Gravity.CENTER
+            orientation = LinearLayout.HORIZONTAL
+        }
+
+        linha.addView(
+            botaoDirecao("←") { alterarPosicao(-10, 0) },
+            direcaoParams()
+        )
+
+        linha.addView(
+            botaoDirecao("•") { zerarPosicao() },
+            direcaoParams()
+        )
+
+        linha.addView(
+            botaoDirecao("→") { alterarPosicao(10, 0) },
+            direcaoParams()
+        )
+
+        painelAjuste.addView(linha)
+
+        painelAjuste.addView(
+            botaoDirecao("↓") {
+                alterarPosicao(0, 10)
+            },
+            centralParams()
+        )
+
+        textoTamanho = TextView(this).apply {
+            setTextColor(verde)
+            textSize = 14f
+            gravity = Gravity.CENTER
+            setPadding(0, dp(18), 0, dp(5))
+        }
+        painelAjuste.addView(textoTamanho)
+
+        val tamanho = SeekBar(this).apply {
+            max = 210
+            progress = tamanhoMira - 40
+            setOnSeekBarChangeListener(
+                object : SeekBar.OnSeekBarChangeListener {
+                    override fun onProgressChanged(
+                        seekBar: SeekBar,
+                        progress: Int,
+                        fromUser: Boolean
+                    ) {
+                        tamanhoMira = progress + 40
+                        salvarAjustes()
+                        atualizarTextosAjuste()
+                    }
+
+                    override fun onStartTrackingTouch(seekBar: SeekBar) {}
+                    override fun onStopTrackingTouch(seekBar: SeekBar) {}
+                }
+            )
+        }
+        painelAjuste.addView(tamanho)
+
+        layout.addView(painelAjuste)
+        atualizarTextosAjuste()
+
         adicionarTitulo(layout, "CONTROLE DA MIRA")
 
-        val ativar = botaoPrincipal("ATIVAR MIRA") {
+        layout.addView(botaoPrincipal("ATIVAR MIRA") {
             ativarMira()
-        }
+        })
 
-        layout.addView(ativar)
-
-        val desativar = botaoSecundario("DESATIVAR MIRA") {
+        layout.addView(botaoSecundario("DESATIVAR MIRA") {
             pararServico()
-        }
-
-        layout.addView(desativar)
+        })
 
         val rodape = TextView(this).apply {
             text = "MIRA PRO • VERSÃO 1.0"
@@ -232,45 +304,76 @@ class MainActivity : Activity() {
             gravity = Gravity.CENTER
             setPadding(0, dp(25), 0, 0)
         }
-
         layout.addView(rodape)
 
         atualizarSelecao()
-
         setContentView(scroll)
     }
 
-    private fun selecionarMira(numero: Int) {
+    private fun alterarPosicao(x: Int, y: Int) {
+        deslocamentoX = (deslocamentoX + x).coerceIn(-500, 500)
+        deslocamentoY = (deslocamentoY + y).coerceIn(-800, 800)
+        salvarAjustes()
+        atualizarTextosAjuste()
+    }
 
-        miraSelecionada = numero
+    private fun zerarPosicao() {
+        deslocamentoX = 0
+        deslocamentoY = 0
+        salvarAjustes()
+        atualizarTextosAjuste()
+    }
 
-        getSharedPreferences(
-            "MIRA_PRO",
-            MODE_PRIVATE
-        ).edit()
-            .putInt("mira_selecionada", numero)
+    private fun salvarAjustes() {
+        preferencias.edit()
+            .putInt("offset_x", deslocamentoX)
+            .putInt("offset_y", deslocamentoY)
+            .putInt("tamanho_mira", tamanhoMira)
             .apply()
+    }
 
-        atualizarSelecao()
+    private fun atualizarTextosAjuste() {
+        textoPosicao.text =
+            "Horizontal: $deslocamentoX    Vertical: $deslocamentoY"
 
-        status.text = "Mira ${numero} selecionada"
+        textoTamanho.text =
+            "TAMANHO: $tamanhoMira"
+    }
+
+    private fun centralParams() =
+        LinearLayout.LayoutParams(dp(65), dp(45)).apply {
+            gravity = Gravity.CENTER
+            setMargins(dp(3), dp(3), dp(3), dp(3))
+        }
+
+    private fun direcaoParams() =
+        LinearLayout.LayoutParams(dp(65), dp(45)).apply {
+            setMargins(dp(3), dp(3), dp(3), dp(3))
+        }
+
+    private fun botaoDirecao(
+        texto: String,
+        acao: () -> Unit
+    ): TextView {
+        return TextView(this).apply {
+            this.text = texto
+            textSize = 22f
+            gravity = Gravity.CENTER
+            typeface = Typeface.DEFAULT_BOLD
+            setTextColor(verde)
+            background = fundoCard()
+            setOnClickListener { acao() }
+        }
     }
 
     private fun atualizarSelecao() {
-
-        preview.setImageBitmap(
-            carregarImagem(miraSelecionada)
-        )
-
+        preview.setImageBitmap(carregarImagem(miraSelecionada))
         selecao.text =
             "Modelo selecionado: ${modelos[miraSelecionada - 1]}"
 
         cards.forEachIndexed { index, card ->
-
             val selecionado = index + 1 == miraSelecionada
-
             card.background = fundoCard(selecionado)
-
             textosCards[index].setTextColor(
                 if (selecionado) verde else branco
             )
@@ -278,14 +381,11 @@ class MainActivity : Activity() {
     }
 
     private fun ativarMira() {
-
         if (!Settings.canDrawOverlays(this)) {
-
             val intent = Intent(
                 Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
                 Uri.parse("package:$packageName")
             )
-
             startActivity(intent)
 
             Toast.makeText(
@@ -293,21 +393,16 @@ class MainActivity : Activity() {
                 "Autorize a sobreposição de tela e tente novamente.",
                 Toast.LENGTH_LONG
             ).show()
-
             return
         }
 
         try {
-            startService(
-                Intent(this, MiraService::class.java)
-            )
-
+            startService(Intent(this, MiraService::class.java))
             Toast.makeText(
                 this,
                 "Solicitação de ativação enviada!",
                 Toast.LENGTH_SHORT
             ).show()
-
         } catch (e: Exception) {
             Toast.makeText(
                 this,
@@ -318,11 +413,7 @@ class MainActivity : Activity() {
     }
 
     private fun pararServico() {
-
-        stopService(
-            Intent(this, MiraService::class.java)
-        )
-
+        stopService(Intent(this, MiraService::class.java))
         Toast.makeText(
             this,
             "Mira desativada!",
@@ -330,29 +421,23 @@ class MainActivity : Activity() {
         ).show()
     }
 
-    private fun adicionarTitulo(
-        layout: LinearLayout,
-        texto: String
-    ) {
+    private fun adicionarTitulo(layout: LinearLayout, texto: String) {
         val titulo = TextView(this).apply {
-            text = texto
+            this.text = texto
             textSize = 15f
             typeface = Typeface.DEFAULT_BOLD
             setTextColor(verde)
             setPadding(0, dp(24), 0, dp(10))
         }
-
         layout.addView(titulo)
     }
 
     private fun fundoCard(
         selecionado: Boolean = false
     ): GradientDrawable {
-
         return GradientDrawable().apply {
             setColor(Color.rgb(24, 29, 36))
             cornerRadius = dp(16).toFloat()
-
             setStroke(
                 if (selecionado) dp(2) else dp(1),
                 if (selecionado) verde else Color.rgb(48, 65, 60)
@@ -364,25 +449,19 @@ class MainActivity : Activity() {
         texto: String,
         acao: () -> Unit
     ): TextView {
-
         return TextView(this).apply {
-            text = texto
+            this.text = texto
             textSize = 16f
             gravity = Gravity.CENTER
             typeface = Typeface.DEFAULT_BOLD
             setTextColor(Color.BLACK)
             setPadding(dp(15), dp(17), dp(15), dp(17))
-
             background = GradientDrawable().apply {
                 setColor(verde)
                 cornerRadius = dp(18).toFloat()
             }
-
             setOnClickListener { acao() }
-
-            layoutParams = LinearLayout.LayoutParams(
-                -1, -2
-            ).apply {
+            layoutParams = LinearLayout.LayoutParams(-1, -2).apply {
                 setMargins(0, dp(15), 0, dp(5))
             }
         }
@@ -392,22 +471,16 @@ class MainActivity : Activity() {
         texto: String,
         acao: () -> Unit
     ): TextView {
-
         return TextView(this).apply {
-            text = texto
+            this.text = texto
             textSize = 15f
             gravity = Gravity.CENTER
             typeface = Typeface.DEFAULT_BOLD
             setTextColor(branco)
             setPadding(dp(15), dp(16), dp(15), dp(16))
-
             background = fundoCard()
-
             setOnClickListener { acao() }
-
-            layoutParams = LinearLayout.LayoutParams(
-                -1, -2
-            ).apply {
+            layoutParams = LinearLayout.LayoutParams(-1, -2).apply {
                 setMargins(0, dp(5), 0, dp(5))
             }
         }
