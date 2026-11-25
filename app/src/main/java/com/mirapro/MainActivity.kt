@@ -10,14 +10,16 @@ import android.net.Uri
 import android.provider.Settings
 import android.widget.*
 import android.view.Gravity
-import android.view.View
 
 class MainActivity : Activity() {
 
     private val fundo = Color.rgb(10, 12, 16)
     private val verde = Color.rgb(0, 235, 145)
     private val branco = Color.WHITE
+
     private var miraSelecionada = 1
+    private lateinit var selecao: TextView
+    private lateinit var status: TextView
 
     private val modelos = listOf(
         "Ornamental 01", "Ornamental 02", "Ornamental 03",
@@ -27,17 +29,14 @@ class MainActivity : Activity() {
         "Neon verde", "Neon roxo", "Circular 01",
         "Circular 02", "Tribal 01", "Tribal 02",
         "Elétrica", "Congelada", "Estrela",
-        "Geometrica", "Precisão", "Clássica"
+        "Geométrica", "Precisão", "Clássica"
     )
-
-    private lateinit var status: TextView
-    private lateinit var selecao: TextView
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+
         window.statusBarColor = fundo
         window.navigationBarColor = fundo
-        window.decorView.systemUiVisibility = 0
 
         criarTela()
     }
@@ -45,18 +44,18 @@ class MainActivity : Activity() {
     private fun criarTela() {
 
         val scroll = ScrollView(this)
-        scroll.setBackgroundColor(fundo)
 
         val layout = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
-            setPadding(20, 24, 20, 30)
+            setPadding(20, 25, 20, 30)
+            setBackgroundColor(fundo)
         }
 
         scroll.addView(layout)
 
         val titulo = TextView(this).apply {
             text = "MIRA PRO"
-            textSize = 30f
+            textSize = 32f
             setTextColor(verde)
             typeface = Typeface.DEFAULT_BOLD
             gravity = Gravity.CENTER
@@ -78,31 +77,21 @@ class MainActivity : Activity() {
             orientation = LinearLayout.VERTICAL
             gravity = Gravity.CENTER
             background = fundoCard()
-            setPadding(16, 20, 16, 20)
+            setPadding(15, 20, 15, 20)
         }
 
-        val tituloPainel = TextView(this).apply {
-            text = "SUA MIRA"
-            textSize = 15f
-            typeface = Typeface.DEFAULT_BOLD
-            setTextColor(verde)
-            gravity = Gravity.CENTER
-        }
-
-        painel.addView(tituloPainel)
-
-        val simbolo = TextView(this).apply {
+        val preview = TextView(this).apply {
             text = "◎"
             textSize = 85f
             setTextColor(verde)
             gravity = Gravity.CENTER
         }
 
-        painel.addView(simbolo)
+        painel.addView(preview)
 
         selecao = TextView(this).apply {
             text = "Modelo selecionado: 01"
-            textSize = 13f
+            textSize = 14f
             setTextColor(branco)
             gravity = Gravity.CENTER
         }
@@ -123,7 +112,6 @@ class MainActivity : Activity() {
 
         val grade = android.widget.GridLayout(this).apply {
             columnCount = 3
-            useDefaultMargins = false
         }
 
         modelos.forEachIndexed { index, nome ->
@@ -133,49 +121,47 @@ class MainActivity : Activity() {
                 textSize = 11f
                 gravity = Gravity.CENTER
                 setTextColor(branco)
-                setPadding(5, 14, 5, 14)
+                setPadding(5, 12, 5, 12)
                 background = fundoCard()
-                isClickable = true
-                isFocusable = true
 
                 setOnClickListener {
                     miraSelecionada = index + 1
                     selecao.text =
-                        "Modelo selecionado: ${index + 1} - $nome"
-                    status.text = "$nome selecionada"
+                        "Modelo ${index + 1}: $nome"
+                    status.text = "Modelo selecionado: $nome"
                     atualizarGrade(grade)
                 }
             }
 
-            val params = android.widget.GridLayout.LayoutParams().apply {
-                width = 0
-                height = 88
-                columnSpec = android.widget.GridLayout.spec(
-                    index % 3, 1f
-                )
-                rowSpec = android.widget.GridLayout.spec(
-                    index / 3
-                )
-                setMargins(4, 4, 4, 4)
-            }
+            val params =
+                android.widget.GridLayout.LayoutParams().apply {
+                    width = 0
+                    height = 88
+                    columnSpec =
+                        android.widget.GridLayout.spec(index % 3, 1f)
+                    rowSpec =
+                        android.widget.GridLayout.spec(index / 3)
+                    setMargins(4, 4, 4, 4)
+                }
 
             grade.addView(botao, params)
         }
 
         layout.addView(grade)
 
-        adicionarTitulo(layout, "PERSONALIZAÇÃO")
-
-        adicionarOpcao(layout, "Tamanho da mira", "Configuração em breve")
-        adicionarOpcao(layout, "Transparência", "Configuração em breve")
-        adicionarOpcao(layout, "Posição da mira", "Configuração em breve")
-        adicionarOpcao(layout, "Cor do ponto central", "Configuração em breve")
+        adicionarTitulo(layout, "CONTROLE DA MIRA")
 
         val ativar = botaoPrincipal("ATIVAR MIRA") {
-            abrirPermissao()
+            ativarMira()
         }
 
         layout.addView(ativar)
+
+        val desativar = botaoSecundario("DESATIVAR MIRA") {
+            pararServico()
+        }
+
+        layout.addView(desativar)
 
         val rodape = TextView(this).apply {
             text = "MIRA PRO • VERSÃO 1.0"
@@ -190,11 +176,68 @@ class MainActivity : Activity() {
         setContentView(scroll)
     }
 
-    private fun atualizarGrade(grade: android.widget.GridLayout) {
+    private fun ativarMira() {
+
+        if (!Settings.canDrawOverlays(this)) {
+
+            val intent = Intent(
+                Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
+                Uri.parse("package:$packageName")
+            )
+
+            startActivity(intent)
+
+            Toast.makeText(
+                this,
+                "Autorize a sobreposição de tela e tente novamente.",
+                Toast.LENGTH_LONG
+            ).show()
+
+            return
+        }
+
+        try {
+            startService(
+                Intent(this, MiraService::class.java)
+            )
+
+            Toast.makeText(
+                this,
+                "Mira ativada!",
+                Toast.LENGTH_SHORT
+            ).show()
+
+        } catch (e: Exception) {
+            Toast.makeText(
+                this,
+                "Não foi possível ativar a mira.",
+                Toast.LENGTH_LONG
+            ).show()
+        }
+    }
+
+    private fun pararServico() {
+
+        stopService(
+            Intent(this, MiraService::class.java)
+        )
+
+        Toast.makeText(
+            this,
+            "Mira desativada!",
+            Toast.LENGTH_SHORT
+        ).show()
+    }
+
+    private fun atualizarGrade(
+        grade: android.widget.GridLayout
+    ) {
         for (i in 0 until grade.childCount) {
             val item = grade.getChildAt(i) as TextView
+
             item.setTextColor(
-                if (i + 1 == miraSelecionada) verde else branco
+                if (i + 1 == miraSelecionada) verde
+                else branco
             )
         }
     }
@@ -214,39 +257,12 @@ class MainActivity : Activity() {
         layout.addView(titulo)
     }
 
-    private fun adicionarOpcao(
-        layout: LinearLayout,
-        nome: String,
-        detalhe: String
-    ) {
-        val item = LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL
-            background = fundoCard()
-            setPadding(15, 13, 15, 13)
+    private fun fundoCard(): GradientDrawable {
+        return GradientDrawable().apply {
+            setColor(Color.rgb(24, 29, 36))
+            cornerRadius = 16f
+            setStroke(1, Color.rgb(48, 65, 60))
         }
-
-        val titulo = TextView(this).apply {
-            text = nome
-            textSize = 14f
-            setTextColor(branco)
-            typeface = Typeface.DEFAULT_BOLD
-        }
-
-        val descricao = TextView(this).apply {
-            text = detalhe
-            textSize = 11f
-            setTextColor(Color.LTGRAY)
-        }
-
-        item.addView(titulo)
-        item.addView(descricao)
-
-        val params = LinearLayout.LayoutParams(
-            -1, -2
-        )
-        params.setMargins(0, 4, 0, 4)
-
-        layout.addView(item, params)
     }
 
     private fun botaoPrincipal(
@@ -260,41 +276,43 @@ class MainActivity : Activity() {
             typeface = Typeface.DEFAULT_BOLD
             setTextColor(Color.BLACK)
             setPadding(15, 17, 15, 17)
+
             background = GradientDrawable().apply {
                 setColor(verde)
                 cornerRadius = 18f
             }
+
             setOnClickListener { acao() }
 
-            val params = LinearLayout.LayoutParams(
+            layoutParams = LinearLayout.LayoutParams(
                 -1, -2
-            )
-            params.setMargins(0, 25, 0, 0)
-            layoutParams = params
+            ).apply {
+                setMargins(0, 15, 0, 5)
+            }
         }
     }
 
-    private fun fundoCard(): GradientDrawable {
-        return GradientDrawable().apply {
-            setColor(Color.rgb(24, 29, 36))
-            setCornerRadius(16f)
-            setStroke(1, Color.rgb(48, 65, 60))
-        }
-    }
+    private fun botaoSecundario(
+        texto: String,
+        acao: () -> Unit
+    ): TextView {
+        return TextView(this).apply {
+            text = texto
+            textSize = 15f
+            gravity = Gravity.CENTER
+            typeface = Typeface.DEFAULT_BOLD
+            setTextColor(branco)
+            setPadding(15, 16, 15, 16)
 
-    private fun abrirPermissao() {
-        if (!Settings.canDrawOverlays(this)) {
-            val intent = Intent(
-                Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
-                Uri.parse("package:$packageName")
-            )
-            startActivity(intent)
-        } else {
-            Toast.makeText(
-                this,
-                "Permissão concedida! A mira flutuante será integrada na próxima etapa.",
-                Toast.LENGTH_LONG
-            ).show()
+            background = fundoCard()
+
+            setOnClickListener { acao() }
+
+            layoutParams = LinearLayout.LayoutParams(
+                -1, -2
+            ).apply {
+                setMargins(0, 5, 0, 5)
+            }
         }
     }
 }
