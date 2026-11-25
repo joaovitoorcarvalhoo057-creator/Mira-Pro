@@ -1,4 +1,3 @@
-
 package com.mirapro
 
 import android.app.Service
@@ -18,6 +17,7 @@ import android.view.MotionEvent
 import android.view.View
 import android.view.WindowManager
 import android.widget.TextView
+import kotlin.math.abs
 
 class MiraService : Service() {
 
@@ -25,11 +25,18 @@ class MiraService : Service() {
 
     private var miraView: MiraOverlayView? = null
     private var botaoFlutuante: TextView? = null
+    private var parametrosBotao: WindowManager.LayoutParams? = null
 
     private var miraSelecionada = 1
     private var deslocamentoX = 0
     private var deslocamentoY = 0
     private var tamanhoMira = 150
+
+    private var inicioToqueX = 0f
+    private var inicioToqueY = 0f
+    private var inicioBotaoX = 0
+    private var inicioBotaoY = 0
+    private var arrastando = false
 
     private val densidade: Float
         get() = resources.displayMetrics.density
@@ -37,7 +44,8 @@ class MiraService : Service() {
     override fun onCreate() {
         super.onCreate()
 
-        windowManager = getSystemService(WINDOW_SERVICE) as WindowManager
+        windowManager =
+            getSystemService(WINDOW_SERVICE) as WindowManager
 
         carregarConfiguracoes()
         criarSobreposicaoMira()
@@ -51,10 +59,7 @@ class MiraService : Service() {
     ): Int {
 
         carregarConfiguracoes()
-
-        miraView?.invalidate()
-
-        // Sempre começa escondida.
+        miraView?.atualizarImagem()
         miraView?.mostrarMira(false)
 
         return START_STICKY
@@ -67,31 +72,25 @@ class MiraService : Service() {
         )
 
         miraSelecionada = preferencias.getInt(
-            "mira_selecionada",
-            1
+            "mira_selecionada", 1
         )
 
         deslocamentoX = preferencias.getInt(
-            "offset_x",
-            0
+            "offset_x", 0
         )
 
         deslocamentoY = preferencias.getInt(
-            "offset_y",
-            0
+            "offset_y", 0
         )
 
         tamanhoMira = preferencias.getInt(
-            "tamanho_mira",
-            150
+            "tamanho_mira", 150
         )
     }
 
     private fun criarSobreposicaoMira() {
 
-        miraView = MiraOverlayView().apply {
-            mostrarMira(false)
-        }
+        miraView = MiraOverlayView()
 
         val parametros = WindowManager.LayoutParams(
             WindowManager.LayoutParams.MATCH_PARENT,
@@ -105,13 +104,15 @@ class MiraService : Service() {
 
         parametros.gravity = Gravity.TOP or Gravity.START
 
-        windowManager.addView(
-            miraView,
-            parametros
-        )
+        windowManager.addView(miraView, parametros)
     }
 
     private fun criarBotaoFlutuante() {
+
+        val preferencias = getSharedPreferences(
+            "MIRA_PRO",
+            MODE_PRIVATE
+        )
 
         val botao = TextView(this).apply {
 
@@ -133,6 +134,9 @@ class MiraService : Service() {
                 )
             }
 
+            // Transparência fixa de 50%.
+            alpha = 0.5f
+
             elevation = 10f
         }
 
@@ -148,40 +152,126 @@ class MiraService : Service() {
         )
 
         parametros.gravity = Gravity.BOTTOM or Gravity.END
-        parametros.x = (24 * densidade).toInt()
-        parametros.y = (250 * densidade).toInt()
+
+        parametros.x = preferencias.getInt(
+            "botao_x",
+            (24 * densidade).toInt()
+        )
+
+        parametros.y = preferencias.getInt(
+            "botao_y",
+            (250 * densidade).toInt()
+        )
+
+        parametrosBotao = parametros
+        botaoFlutuante = botao
+
+        configurarToqueEBotao(botao)
+
+        windowManager.addView(botao, parametros)
+    }
+
+    private fun configurarToqueEBotao(botao: TextView) {
 
         botao.setOnTouchListener { _, evento ->
+
+            val parametros = parametrosBotao
+                ?: return@setOnTouchListener false
 
             when (evento.action) {
 
                 MotionEvent.ACTION_DOWN -> {
-                    // Mostra a mira enquanto pressionado.
+
+                    inicioToqueX = evento.rawX
+                    inicioToqueY = evento.rawY
+
+                    inicioBotaoX = parametros.x
+                    inicioBotaoY = parametros.y
+
+                    arrastando = false
+
                     miraView?.mostrarMira(true)
+
                     true
                 }
 
-                MotionEvent.ACTION_UP,
-                MotionEvent.ACTION_CANCEL -> {
-                    // Esconde a mira ao soltar.
+                MotionEvent.ACTION_MOVE -> {
+
+                    val diferencaX =
+                        evento.rawX - inicioToqueX
+
+                    val diferencaY =
+                        evento.rawY - inicioToqueY
+
+                    val limite = 6 * densidade
+
+                    if (
+                        abs(diferencaX) > limite ||
+                        abs(diferencaY) > limite
+                    ) {
+                        arrastando = true
+                    }
+
+                    if (arrastando) {
+
+                        // Gravity END: inverter movimento horizontal.
+                        parametros.x = (
+                            inicioBotaoX - diferencaX.toInt()
+                        ).coerceAtLeast(0)
+
+                        // Gravity BOTTOM: inverter movimento vertical.
+                        parametros.y = (
+                            inicioBotaoY - diferencaY.toInt()
+                        ).coerceAtLeast(0)
+
+                        try {
+                            windowManager.updateViewLayout(
+                                botao,
+                                parametros
+                            )
+                        } catch (_: Exception) {
+                        }
+                    }
+
+                    true
+                }
+
+                MotionEvent.ACTION_UP -> {
+
                     miraView?.mostrarMira(false)
+
+                    if (arrastando) {
+                        getSharedPreferences(
+                            "MIRA_PRO",
+                            MODE_PRIVATE
+                        ).edit()
+                            .putInt("botao_x", parametros.x)
+                            .putInt("botao_y", parametros.y)
+                            .apply()
+                    }
+
+                    arrastando = false
+
+                    true
+                }
+
+                MotionEvent.ACTION_CANCEL -> {
+
+                    miraView?.mostrarMira(false)
+                    arrastando = false
+
                     true
                 }
 
                 else -> true
             }
         }
-
-        botaoFlutuante = botao
-
-        windowManager.addView(
-            botao,
-            parametros
-        )
     }
 
     private fun tipoSobreposicao(): Int {
-        return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+        return if (
+            Build.VERSION.SDK_INT >= Build.VERSION_CODES.O
+        ) {
             WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY
         } else {
             @Suppress("DEPRECATION")
@@ -189,29 +279,34 @@ class MiraService : Service() {
         }
     }
 
-    private inner class MiraOverlayView : View(this@MiraService) {
+    private inner class MiraOverlayView :
+        View(this@MiraService) {
 
         private val pincel = Paint(
-            Paint.ANTI_ALIAS_FLAG or Paint.FILTER_BITMAP_FLAG
+            Paint.ANTI_ALIAS_FLAG or
+                Paint.FILTER_BITMAP_FLAG
         )
 
         private var bitmap: Bitmap? = null
         private var visivel = false
 
         init {
-            carregarImagem()
+            atualizarImagem()
         }
 
-        private fun carregarImagem() {
+        fun atualizarImagem() {
+
             bitmap = try {
                 assets.open(
                     "miras/mira_%02d.png".format(miraSelecionada)
                 ).use {
                     BitmapFactory.decodeStream(it)
                 }
-            } catch (e: Exception) {
+            } catch (_: Exception) {
                 null
             }
+
+            invalidate()
         }
 
         fun mostrarMira(mostrar: Boolean) {
