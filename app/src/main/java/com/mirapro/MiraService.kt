@@ -8,7 +8,7 @@ import android.graphics.Canvas
 import android.graphics.Color
 import android.graphics.Paint
 import android.graphics.PixelFormat
-import android.graphics.RectF
+import android.graphics.Typeface
 import android.graphics.drawable.GradientDrawable
 import android.os.Build
 import android.os.IBinder
@@ -22,34 +22,27 @@ import kotlin.math.abs
 class MiraService : Service() {
 
     private lateinit var windowManager: WindowManager
-
     private var miraView: MiraOverlayView? = null
-    private var botaoFlutuante: TextView? = null
-    private var parametrosBotao: WindowManager.LayoutParams? = null
+    private var botaoMira: TextView? = null
+    private var miraParams: WindowManager.LayoutParams? = null
+    private var botaoParams: WindowManager.LayoutParams? = null
 
-    private var miraSelecionada = 1
-    private var deslocamentoX = 0
-    private var deslocamentoY = 0
-    private var tamanhoMira = 150
+    private val prefs by lazy {
+        getSharedPreferences("MIRA_PRO", MODE_PRIVATE)
+    }
 
-    private var inicioToqueX = 0f
-    private var inicioToqueY = 0f
-    private var inicioBotaoX = 0
-    private var inicioBotaoY = 0
-    private var arrastando = false
-
-    private val densidade: Float
-        get() = resources.displayMetrics.density
+    private val densidade by lazy {
+        resources.displayMetrics.density
+    }
 
     override fun onCreate() {
         super.onCreate()
 
-        windowManager =
-            getSystemService(WINDOW_SERVICE) as WindowManager
+        windowManager = getSystemService(WINDOW_SERVICE) as WindowManager
 
-        carregarConfiguracoes()
-        criarSobreposicaoMira()
+        criarMira()
         criarBotaoFlutuante()
+        carregarConfiguracoes()
     }
 
     override fun onStartCommand(
@@ -57,178 +50,127 @@ class MiraService : Service() {
         flags: Int,
         startId: Int
     ): Int {
-
         carregarConfiguracoes()
-        miraView?.atualizarImagem()
         miraView?.mostrarMira(false)
-
         return START_STICKY
     }
 
-    private fun carregarConfiguracoes() {
-        val preferencias = getSharedPreferences(
-            "MIRA_PRO",
-            MODE_PRIVATE
-        )
-
-        miraSelecionada = preferencias.getInt(
-            "mira_selecionada", 1
-        )
-
-        deslocamentoX = preferencias.getInt(
-            "offset_x", 0
-        )
-
-        deslocamentoY = preferencias.getInt(
-            "offset_y", 0
-        )
-
-        tamanhoMira = preferencias.getInt(
-            "tamanho_mira", 150
-        )
+    private fun tipoJanela(): Int {
+        return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY
+        } else {
+            @Suppress("DEPRECATION")
+            WindowManager.LayoutParams.TYPE_PHONE
+        }
     }
 
-    private fun criarSobreposicaoMira() {
-
+    private fun criarMira() {
         miraView = MiraOverlayView()
 
-        val parametros = WindowManager.LayoutParams(
+        miraParams = WindowManager.LayoutParams(
             WindowManager.LayoutParams.MATCH_PARENT,
             WindowManager.LayoutParams.MATCH_PARENT,
-            tipoSobreposicao(),
+            tipoJanela(),
             WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
                 WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE or
                 WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN,
             PixelFormat.TRANSLUCENT
-        )
+        ).apply {
+            gravity = Gravity.TOP or Gravity.START
+        }
 
-        parametros.gravity = Gravity.TOP or Gravity.START
-
-        windowManager.addView(miraView, parametros)
+        windowManager.addView(miraView, miraParams)
     }
 
     private fun criarBotaoFlutuante() {
+        val botao = TextView(this)
 
-        val preferencias = getSharedPreferences(
-            "MIRA_PRO",
-            MODE_PRIVATE
+        botao.text = "MIRA"
+        botao.textSize = 10f
+        botao.setTextColor(Color.WHITE)
+        botao.typeface = Typeface.DEFAULT_BOLD
+        botao.gravity = Gravity.CENTER
+        botao.alpha = 0.5f
+        botao.elevation = 10f
+
+        val fundo = GradientDrawable()
+        fundo.shape = GradientDrawable.OVAL
+        fundo.setColor(Color.rgb(23, 180, 85))
+        fundo.setStroke(
+            (2 * densidade).toInt(),
+            Color.WHITE
         )
+        botao.background = fundo
 
-        val botao = TextView(this).apply {
+        // Botão reduzido exatamente pela metade: 62 dp para 31 dp.
+        val tamanhoBotao = (31 * densidade).toInt()
 
-            text = "MIRA"
-            textSize = 13f
-            setTextColor(Color.BLACK)
-            gravity = Gravity.CENTER
-
-            setTypeface(
-                android.graphics.Typeface.DEFAULT_BOLD
-            )
-
-            background = GradientDrawable().apply {
-                shape = GradientDrawable.OVAL
-                setColor(Color.rgb(0, 230, 118))
-                setStroke(
-                    (2 * densidade).toInt(),
-                    Color.WHITE
-                )
-            }
-
-            // Transparência fixa de 50%.
-            alpha = 0.5f
-
-            elevation = 10f
-        }
-
-        val tamanhoBotao = (62 * densidade).toInt()
-
-        val parametros = WindowManager.LayoutParams(
+        val params = WindowManager.LayoutParams(
             tamanhoBotao,
             tamanhoBotao,
-            tipoSobreposicao(),
+            tipoJanela(),
             WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
                 WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN,
             PixelFormat.TRANSLUCENT
-        )
+        ).apply {
+            gravity = Gravity.BOTTOM or Gravity.END
+            x = (24 * densidade).toInt()
+            y = (250 * densidade).toInt()
+        }
 
-        parametros.gravity = Gravity.BOTTOM or Gravity.END
+        botaoParams = params
+        botaoMira = botao
 
-        parametros.x = preferencias.getInt(
-            "botao_x",
-            (24 * densidade).toInt()
-        )
+        val salvo = prefs.getBoolean("botao_posicao_salva", false)
 
-        parametros.y = preferencias.getInt(
-            "botao_y",
-            (250 * densidade).toInt()
-        )
+        if (salvo) {
+            params.x = prefs.getInt("botao_x", params.x)
+            params.y = prefs.getInt("botao_y", params.y)
+        }
 
-        parametrosBotao = parametros
-        botaoFlutuante = botao
-
-        configurarToqueEBotao(botao)
-
-        windowManager.addView(botao, parametros)
-    }
-
-    private fun configurarToqueEBotao(botao: TextView) {
+        var inicioX = 0f
+        var inicioY = 0f
+        var inicialBotaoX = 0
+        var inicialBotaoY = 0
+        var arrastando = false
 
         botao.setOnTouchListener { _, evento ->
-
-            val parametros = parametrosBotao
-                ?: return@setOnTouchListener false
 
             when (evento.action) {
 
                 MotionEvent.ACTION_DOWN -> {
+                    inicioX = evento.rawX
+                    inicioY = evento.rawY
 
-                    inicioToqueX = evento.rawX
-                    inicioToqueY = evento.rawY
-
-                    inicioBotaoX = parametros.x
-                    inicioBotaoY = parametros.y
+                    inicialBotaoX = params.x
+                    inicialBotaoY = params.y
 
                     arrastando = false
 
                     miraView?.mostrarMira(true)
-
                     true
                 }
 
                 MotionEvent.ACTION_MOVE -> {
-
-                    val diferencaX =
-                        evento.rawX - inicioToqueX
-
-                    val diferencaY =
-                        evento.rawY - inicioToqueY
-
-                    val limite = 6 * densidade
+                    val deslocamentoX = evento.rawX - inicioX
+                    val deslocamentoY = evento.rawY - inicioY
 
                     if (
-                        abs(diferencaX) > limite ||
-                        abs(diferencaY) > limite
+                        abs(deslocamentoX) > 6 * densidade ||
+                        abs(deslocamentoY) > 6 * densidade
                     ) {
                         arrastando = true
                     }
 
                     if (arrastando) {
+                        params.x = inicialBotaoX -
+                            deslocamentoX.toInt()
 
-                        // Gravity END: inverter movimento horizontal.
-                        parametros.x = (
-                            inicioBotaoX - diferencaX.toInt()
-                        ).coerceAtLeast(0)
-
-                        // Gravity BOTTOM: inverter movimento vertical.
-                        parametros.y = (
-                            inicioBotaoY - diferencaY.toInt()
-                        ).coerceAtLeast(0)
+                        params.y = inicialBotaoY -
+                            deslocamentoY.toInt()
 
                         try {
-                            windowManager.updateViewLayout(
-                                botao,
-                                parametros
-                            )
+                            windowManager.updateViewLayout(botao, params)
                         } catch (_: Exception) {
                         }
                     }
@@ -237,74 +179,110 @@ class MiraService : Service() {
                 }
 
                 MotionEvent.ACTION_UP -> {
-
                     miraView?.mostrarMira(false)
 
                     if (arrastando) {
-                        getSharedPreferences(
-                            "MIRA_PRO",
-                            MODE_PRIVATE
-                        ).edit()
-                            .putInt("botao_x", parametros.x)
-                            .putInt("botao_y", parametros.y)
+                        prefs.edit()
+                            .putInt("botao_x", params.x)
+                            .putInt("botao_y", params.y)
+                            .putBoolean("botao_posicao_salva", true)
                             .apply()
                     }
 
                     arrastando = false
-
                     true
                 }
 
                 MotionEvent.ACTION_CANCEL -> {
-
                     miraView?.mostrarMira(false)
                     arrastando = false
-
                     true
                 }
 
                 else -> true
             }
         }
+
+        windowManager.addView(botao, params)
     }
 
-    private fun tipoSobreposicao(): Int {
-        return if (
-            Build.VERSION.SDK_INT >= Build.VERSION_CODES.O
-        ) {
-            WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY
-        } else {
-            @Suppress("DEPRECATION")
-            WindowManager.LayoutParams.TYPE_PHONE
+    private fun carregarConfiguracoes() {
+        val nomeMira = obterNomeMira()
+
+        val tamanho = obterNumero("tamanho_mira", 140).toFloat()
+        val offsetX = obterNumero("offset_x", 0).toFloat()
+        val offsetY = obterNumero("offset_y", 0).toFloat()
+
+        miraView?.atualizarMira(
+            nomeMira,
+            tamanho,
+            offsetX,
+            offsetY
+        )
+    }
+
+    private fun obterNomeMira(): String {
+        val valor = prefs.all["mira_selecionada"]?.toString()
+
+        if (valor.isNullOrBlank()) {
+            return "mira_01"
+        }
+
+        val numero = valor.toIntOrNull()
+
+        if (numero != null) {
+            return "mira_%02d".format(numero.coerceIn(1, 24))
+        }
+
+        return valor.removeSuffix(".png")
+    }
+
+    private fun obterNumero(chave: String, padrao: Int): Int {
+        val valor = prefs.all[chave]
+
+        return when (valor) {
+            is Number -> valor.toInt()
+            is String -> valor.toIntOrNull() ?: padrao
+            else -> padrao
         }
     }
 
-    private inner class MiraOverlayView :
-        View(this@MiraService) {
+    inner class MiraOverlayView : View(this@MiraService) {
 
-        private val pincel = Paint(
-            Paint.ANTI_ALIAS_FLAG or
-                Paint.FILTER_BITMAP_FLAG
-        )
+        private val pincel = Paint(Paint.ANTI_ALIAS_FLAG)
 
         private var bitmap: Bitmap? = null
+        private var nomeAtual = ""
+        private var tamanhoMira = 140f
+        private var deslocamentoX = 0f
+        private var deslocamentoY = 0f
         private var visivel = false
 
         init {
-            atualizarImagem()
+            setLayerType(View.LAYER_TYPE_SOFTWARE, null)
         }
 
-        fun atualizarImagem() {
+        fun atualizarMira(
+            nome: String,
+            tamanho: Float,
+            x: Float,
+            y: Float
+        ) {
+            if (nome != nomeAtual) {
+                nomeAtual = nome
 
-            bitmap = try {
-                assets.open(
-                    "miras/mira_%02d.png".format(miraSelecionada)
-                ).use {
-                    BitmapFactory.decodeStream(it)
+                try {
+                    assets.open("miras/$nome.png").use {
+                        bitmap = BitmapFactory.decodeStream(it)
+                    }
+                } catch (_: Exception) {
+                    bitmap = null
                 }
-            } catch (_: Exception) {
-                null
             }
+
+            tamanhoMira = tamanho.coerceIn(40f, 250f)
+            deslocamentoX = x
+            deslocamentoY = y
 
             invalidate()
         }
@@ -321,50 +299,50 @@ class MiraService : Service() {
 
             val imagem = bitmap ?: return
 
-            val tamanho = tamanhoMira * densidade
+            val centroX = width / 2f + deslocamentoX * densidade
+            val centroY = height / 2f + deslocamentoY * densidade
 
-            val centroX = width / 2f +
-                deslocamentoX * densidade
+            val largura = tamanhoMira * densidade
+            val altura = largura * imagem.height / imagem.width.toFloat()
 
-            val centroY = height / 2f +
-                deslocamentoY * densidade
+            val esquerda = centroX - largura / 2f
+            val topo = centroY - altura / 2f
 
-            val destino = RectF(
-                centroX - tamanho / 2f,
-                centroY - tamanho / 2f,
-                centroX + tamanho / 2f,
-                centroY + tamanho / 2f
-            )
+            pincel.alpha = 255
 
             canvas.drawBitmap(
                 imagem,
                 null,
-                destino,
+                android.graphics.RectF(
+                    esquerda,
+                    topo,
+                    esquerda + largura,
+                    topo + altura
+                ),
                 pincel
             )
         }
     }
 
     override fun onDestroy() {
+        super.onDestroy()
 
-        miraView?.let {
-            try {
+        try {
+            miraView?.let {
                 windowManager.removeView(it)
-            } catch (_: Exception) {
             }
+        } catch (_: Exception) {
         }
 
-        botaoFlutuante?.let {
-            try {
+        try {
+            botaoMira?.let {
                 windowManager.removeView(it)
-            } catch (_: Exception) {
             }
+        } catch (_: Exception) {
         }
 
         miraView = null
-        botaoFlutuante = null
-
-        super.onDestroy()
+        botaoMira = null
     }
 
     override fun onBind(intent: Intent?): IBinder? {
