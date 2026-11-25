@@ -19,6 +19,10 @@ class MiraService : Service() {
     private var miraView: MiraView? = null
     private var imagemMira: Bitmap? = null
 
+    private var deslocamentoX = 0
+    private var deslocamentoY = 0
+    private var tamanhoMira = 140
+
     override fun onBind(intent: Intent?): IBinder? = null
 
     override fun onCreate() {
@@ -28,7 +32,7 @@ class MiraService : Service() {
             WINDOW_SERVICE
         ) as WindowManager
 
-        carregarMiraSelecionada()
+        carregarConfiguracoes()
 
         val params = WindowManager.LayoutParams(
             WindowManager.LayoutParams.MATCH_PARENT,
@@ -53,13 +57,13 @@ class MiraService : Service() {
         startId: Int
     ): Int {
 
-        carregarMiraSelecionada()
+        carregarConfiguracoes()
         miraView?.invalidate()
 
         return START_STICKY
     }
 
-    private fun carregarMiraSelecionada() {
+    private fun carregarConfiguracoes() {
 
         val preferencias = getSharedPreferences(
             "MIRA_PRO",
@@ -70,6 +74,14 @@ class MiraService : Service() {
             "mira_selecionada",
             1
         ).coerceIn(1, 24)
+
+        deslocamentoX = preferencias.getInt("offset_x", 0)
+        deslocamentoY = preferencias.getInt("offset_y", 0)
+
+        tamanhoMira = preferencias.getInt(
+            "tamanho_mira",
+            140
+        ).coerceIn(40, 250)
 
         val nomeArquivo = "miras/mira_%02d.png".format(numero)
 
@@ -94,10 +106,15 @@ class MiraService : Service() {
 
             val bitmap = imagemMira ?: return
 
-            val tamanho = 140f * resources.displayMetrics.density
+            val densidade = resources.displayMetrics.density
 
-            val centroX = width / 2f
-            val centroY = height / 2f
+            val tamanho = tamanhoMira * densidade
+
+            val centroX =
+                width / 2f + deslocamentoX * densidade
+
+            val centroY =
+                height / 2f + deslocamentoY * densidade
 
             val destino = RectF(
                 centroX - tamanho / 2f,
@@ -121,7 +138,7 @@ class MiraService : Service() {
             try {
                 windowManager.removeView(it)
             } catch (e: Exception) {
-                // A visualização já pode ter sido removida.
+                // Visualização já removida.
             }
         }
 
