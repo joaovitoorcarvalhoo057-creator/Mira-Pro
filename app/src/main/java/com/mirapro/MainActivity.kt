@@ -4,12 +4,15 @@ import android.app.Activity
 import android.os.Bundle
 import android.graphics.Color
 import android.graphics.Typeface
+import android.graphics.Bitmap
+import android.graphics.BitmapFactory
 import android.graphics.drawable.GradientDrawable
 import android.content.Intent
 import android.net.Uri
 import android.provider.Settings
-import android.widget.*
 import android.view.Gravity
+import android.view.View
+import android.widget.*
 
 class MainActivity : Activity() {
 
@@ -18,8 +21,14 @@ class MainActivity : Activity() {
     private val branco = Color.WHITE
 
     private var miraSelecionada = 1
+
     private lateinit var selecao: TextView
     private lateinit var status: TextView
+    private lateinit var preview: ImageView
+
+    private val imagens = mutableMapOf<Int, Bitmap?>()
+    private val cards = mutableListOf<LinearLayout>()
+    private val textosCards = mutableListOf<TextView>()
 
     private val modelos = listOf(
         "Ornamental 01", "Ornamental 02", "Ornamental 03",
@@ -38,7 +47,40 @@ class MainActivity : Activity() {
         window.statusBarColor = fundo
         window.navigationBarColor = fundo
 
+        miraSelecionada = getSharedPreferences(
+            "MIRA_PRO",
+            MODE_PRIVATE
+        ).getInt("mira_selecionada", 1)
+
+        if (miraSelecionada !in 1..24) {
+            miraSelecionada = 1
+        }
+
         criarTela()
+    }
+
+    private fun dp(valor: Int): Int {
+        return (valor * resources.displayMetrics.density).toInt()
+    }
+
+    private fun carregarImagem(numero: Int): Bitmap? {
+
+        if (imagens.containsKey(numero)) {
+            return imagens[numero]
+        }
+
+        val nome = "miras/mira_%02d.png".format(numero)
+
+        val bitmap = try {
+            assets.open(nome).use {
+                BitmapFactory.decodeStream(it)
+            }
+        } catch (e: Exception) {
+            null
+        }
+
+        imagens[numero] = bitmap
+        return bitmap
     }
 
     private fun criarTela() {
@@ -47,7 +89,7 @@ class MainActivity : Activity() {
 
         val layout = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
-            setPadding(20, 25, 20, 30)
+            setPadding(dp(20), dp(25), dp(20), dp(30))
             setBackgroundColor(fundo)
         }
 
@@ -68,7 +110,7 @@ class MainActivity : Activity() {
             textSize = 11f
             setTextColor(Color.LTGRAY)
             gravity = Gravity.CENTER
-            setPadding(0, 5, 0, 25)
+            setPadding(0, dp(5), 0, dp(25))
         }
 
         layout.addView(subtitulo)
@@ -77,23 +119,25 @@ class MainActivity : Activity() {
             orientation = LinearLayout.VERTICAL
             gravity = Gravity.CENTER
             background = fundoCard()
-            setPadding(15, 20, 15, 20)
+            setPadding(dp(15), dp(20), dp(15), dp(20))
         }
 
-        val preview = TextView(this).apply {
-            text = "◎"
-            textSize = 85f
-            setTextColor(verde)
-            gravity = Gravity.CENTER
+        preview = ImageView(this).apply {
+            layoutParams = LinearLayout.LayoutParams(
+                dp(150), dp(150)
+            )
+            scaleType = ImageView.ScaleType.FIT_CENTER
+            setImageBitmap(carregarImagem(miraSelecionada))
         }
 
         painel.addView(preview)
 
         selecao = TextView(this).apply {
-            text = "Modelo selecionado: 01"
+            text = "Modelo selecionado: ${modelos[miraSelecionada - 1]}"
             textSize = 14f
             setTextColor(branco)
             gravity = Gravity.CENTER
+            setPadding(0, dp(10), 0, 0)
         }
 
         painel.addView(selecao)
@@ -105,46 +149,64 @@ class MainActivity : Activity() {
             text = "24 modelos disponíveis"
             textSize = 12f
             setTextColor(Color.LTGRAY)
-            setPadding(0, 5, 0, 12)
+            setPadding(0, dp(5), 0, dp(12))
         }
 
         layout.addView(status)
 
-        val grade = android.widget.GridLayout(this).apply {
+        val grade = GridLayout(this).apply {
             columnCount = 3
         }
 
         modelos.forEachIndexed { index, nome ->
 
-            val botao = TextView(this).apply {
-                text = "${index + 1}\n$nome"
-                textSize = 11f
-                gravity = Gravity.CENTER
-                setTextColor(branco)
-                setPadding(5, 12, 5, 12)
-                background = fundoCard()
+            val numero = index + 1
 
-                setOnClickListener {
-                    miraSelecionada = index + 1
-                    selecao.text =
-                        "Modelo ${index + 1}: $nome"
-                    status.text = "Modelo selecionado: $nome"
-                    atualizarGrade(grade)
-                }
+            val card = LinearLayout(this).apply {
+                orientation = LinearLayout.VERTICAL
+                gravity = Gravity.CENTER
+                setPadding(dp(4), dp(8), dp(4), dp(8))
+                background = fundoCard(numero == miraSelecionada)
             }
 
-            val params =
-                android.widget.GridLayout.LayoutParams().apply {
-                    width = 0
-                    height = 88
-                    columnSpec =
-                        android.widget.GridLayout.spec(index % 3, 1f)
-                    rowSpec =
-                        android.widget.GridLayout.spec(index / 3)
-                    setMargins(4, 4, 4, 4)
-                }
+            val imagem = ImageView(this).apply {
+                layoutParams = LinearLayout.LayoutParams(
+                    dp(65), dp(65)
+                )
+                scaleType = ImageView.ScaleType.FIT_CENTER
+                setImageBitmap(carregarImagem(numero))
+            }
 
-            grade.addView(botao, params)
+            card.addView(imagem)
+
+            val texto = TextView(this).apply {
+                text = "%02d\n%s".format(numero, nome)
+                textSize = 10f
+                gravity = Gravity.CENTER
+                setTextColor(
+                    if (numero == miraSelecionada) verde else branco
+                )
+                setPadding(0, dp(5), 0, 0)
+            }
+
+            card.addView(texto)
+
+            card.setOnClickListener {
+                selecionarMira(numero)
+            }
+
+            val params = GridLayout.LayoutParams().apply {
+                width = 0
+                height = dp(120)
+                columnSpec = GridLayout.spec(index % 3, 1f)
+                rowSpec = GridLayout.spec(index / 3)
+                setMargins(dp(4), dp(4), dp(4), dp(4))
+            }
+
+            grade.addView(card, params)
+
+            cards.add(card)
+            textosCards.add(texto)
         }
 
         layout.addView(grade)
@@ -168,12 +230,51 @@ class MainActivity : Activity() {
             textSize = 10f
             setTextColor(Color.GRAY)
             gravity = Gravity.CENTER
-            setPadding(0, 25, 0, 0)
+            setPadding(0, dp(25), 0, 0)
         }
 
         layout.addView(rodape)
 
+        atualizarSelecao()
+
         setContentView(scroll)
+    }
+
+    private fun selecionarMira(numero: Int) {
+
+        miraSelecionada = numero
+
+        getSharedPreferences(
+            "MIRA_PRO",
+            MODE_PRIVATE
+        ).edit()
+            .putInt("mira_selecionada", numero)
+            .apply()
+
+        atualizarSelecao()
+
+        status.text = "Mira ${numero} selecionada"
+    }
+
+    private fun atualizarSelecao() {
+
+        preview.setImageBitmap(
+            carregarImagem(miraSelecionada)
+        )
+
+        selecao.text =
+            "Modelo selecionado: ${modelos[miraSelecionada - 1]}"
+
+        cards.forEachIndexed { index, card ->
+
+            val selecionado = index + 1 == miraSelecionada
+
+            card.background = fundoCard(selecionado)
+
+            textosCards[index].setTextColor(
+                if (selecionado) verde else branco
+            )
+        }
     }
 
     private fun ativarMira() {
@@ -203,7 +304,7 @@ class MainActivity : Activity() {
 
             Toast.makeText(
                 this,
-                "Mira ativada!",
+                "Solicitação de ativação enviada!",
                 Toast.LENGTH_SHORT
             ).show()
 
@@ -229,19 +330,6 @@ class MainActivity : Activity() {
         ).show()
     }
 
-    private fun atualizarGrade(
-        grade: android.widget.GridLayout
-    ) {
-        for (i in 0 until grade.childCount) {
-            val item = grade.getChildAt(i) as TextView
-
-            item.setTextColor(
-                if (i + 1 == miraSelecionada) verde
-                else branco
-            )
-        }
-    }
-
     private fun adicionarTitulo(
         layout: LinearLayout,
         texto: String
@@ -251,17 +339,24 @@ class MainActivity : Activity() {
             textSize = 15f
             typeface = Typeface.DEFAULT_BOLD
             setTextColor(verde)
-            setPadding(0, 24, 0, 10)
+            setPadding(0, dp(24), 0, dp(10))
         }
 
         layout.addView(titulo)
     }
 
-    private fun fundoCard(): GradientDrawable {
+    private fun fundoCard(
+        selecionado: Boolean = false
+    ): GradientDrawable {
+
         return GradientDrawable().apply {
             setColor(Color.rgb(24, 29, 36))
-            cornerRadius = 16f
-            setStroke(1, Color.rgb(48, 65, 60))
+            cornerRadius = dp(16).toFloat()
+
+            setStroke(
+                if (selecionado) dp(2) else dp(1),
+                if (selecionado) verde else Color.rgb(48, 65, 60)
+            )
         }
     }
 
@@ -269,17 +364,18 @@ class MainActivity : Activity() {
         texto: String,
         acao: () -> Unit
     ): TextView {
+
         return TextView(this).apply {
             text = texto
             textSize = 16f
             gravity = Gravity.CENTER
             typeface = Typeface.DEFAULT_BOLD
             setTextColor(Color.BLACK)
-            setPadding(15, 17, 15, 17)
+            setPadding(dp(15), dp(17), dp(15), dp(17))
 
             background = GradientDrawable().apply {
                 setColor(verde)
-                cornerRadius = 18f
+                cornerRadius = dp(18).toFloat()
             }
 
             setOnClickListener { acao() }
@@ -287,7 +383,7 @@ class MainActivity : Activity() {
             layoutParams = LinearLayout.LayoutParams(
                 -1, -2
             ).apply {
-                setMargins(0, 15, 0, 5)
+                setMargins(0, dp(15), 0, dp(5))
             }
         }
     }
@@ -296,13 +392,14 @@ class MainActivity : Activity() {
         texto: String,
         acao: () -> Unit
     ): TextView {
+
         return TextView(this).apply {
             text = texto
             textSize = 15f
             gravity = Gravity.CENTER
             typeface = Typeface.DEFAULT_BOLD
             setTextColor(branco)
-            setPadding(15, 16, 15, 16)
+            setPadding(dp(15), dp(16), dp(15), dp(16))
 
             background = fundoCard()
 
@@ -311,7 +408,7 @@ class MainActivity : Activity() {
             layoutParams = LinearLayout.LayoutParams(
                 -1, -2
             ).apply {
-                setMargins(0, 5, 0, 5)
+                setMargins(0, dp(5), 0, dp(5))
             }
         }
     }
